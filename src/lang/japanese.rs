@@ -1,0 +1,3 @@
+pub fn is_japanese(ch: char) -> bool {
+    matches!(ch as u32, 0x3040..=0x309F | 0x30A0..=0x30FF | 0xFF66..=0xFF9D)
+}

@@ -1,0 +1,55 @@
+# --- normal single language ---
+[ja] これはテストです
+[zh-simp] 这是一个测试
+[zh-trad] 這是一個測試
+[ko] 테스트입니다
+[ru] пример строки
+[vi] tiếng Việt có dấu
+[th] ภาษาไทยทดสอบ
+[ar] العربية اختبار
+[hi] यह एक परीक्षण है
+[el] Ελληνικά τεστ
+[en] this is a test
+
+# --- japanese vs chinese ambiguity ---
+[unknown] 漢字だけの文章
+[zh-simp] 测试数据
+[zh-trad] 數據分析
+
+# --- dprk keywords ---
+[ko,dprk] 조선 로동 동무
+[ko,dprk] 위대한 수령 동지
+
+# --- mixed scripts ---
+[ja] abc テスト
+[ru] abc тест
+[zh-simp] abc 测试
+[ja,ru] テスト пример
+[zh-simp,ko] 测试 테스트
+[ko,el] Δοκιμή 테스트
+[ja,ru,el] пример テスト Δοκιμή
+
+# --- latin only suspicious ---
+[] update completed successfully
+[] download file immediately
+[] click here to verify account
+
+# --- weird multilingual spam-like ---
+[zh-simp,ko,ar] 免费 테스트 click هنا الآن
+[ru,ja,ko] обновление テスト 지금 바로 확인
+[ar,ko,ja] secure حساب 확인 テスト
+
+# --- encoding / noise ---
+[unknown] \x00\x01\x02test\xFF
+[unknown,ja] ���テスト���
+[unknown] /////@@@@@#####
+
+# --- long mixed line ---
+[ja,ru,el,ko,ar] これはtest строки Δοκιμή 테스트 العربية mixed テキスト пример
+
+# --- edge cases ---
+[] a
+[ja] あ
+[ko] 한
+[zh] 中
+[unknown] 🙂

@@ -1,0 +1,6 @@
+pub fn is_cyrillic(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x0400..=0x04FF | 0x0500..=0x052F | 0x2DE0..=0x2DFF | 0xA640..=0xA69F
+    )
+}
