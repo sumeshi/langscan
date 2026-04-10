@@ -1,0 +1,1 @@
+pub const THAI_RANGE: (char, char) = ('\u{0E00}', '\u{0E7F}');

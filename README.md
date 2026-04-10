@@ -1,18 +1,20 @@
 # langscan
 
-A small tool that scans a collection of strings to find those in different locales
+A small Rust CLI for finding uncommon scripts and language hints in text.
 
 ## Use Cases
 
 - Scan MFT-derived file paths, ADS names, or recovered text during forensics to identify files created or labeled in foreign-language scripts.
 - Scan `strings` output from PE files, DLLs, shellcode, or unpacked malware to spot language hints tied to operators, tooling, or victim targeting.
-- Review extracted logs, command history, or dropped text artifacts for Chinese, Russian, Korean, Japanese, Arabic, Persian, Hebrew, Urdu, Thai, Hindi, Greek, or Vietnamese content.
+- Review extracted logs, command history, or dropped text artifacts for Chinese, Russian, Korean, Japanese, Arabic, Persian, Hebrew, Urdu, Thai, Hindi, Greek, Turkish, Polish, Ukrainian, or Vietnamese content.
 - Triage directories recursively to surface multilingual filenames or embedded text before deeper reverse engineering or attribution work.
 
 ## Usage
 
+**Input is assumed to be UTF-8 encoded.**
+
 ```bash
-# Scan a file (default: cjk/ru/ko/ja/vi/th/ar/fa/he/hi/el/ur)
+# Scan a file (default: ar/cjk/el/fa/he/hi/ja/ko/pl/ru/th/tr/uk/ur/vi)
 langscan ./input.txt
 
 # Read from stdin
@@ -27,9 +29,17 @@ langscan -v --lang ja input.txt
 # Include Korean regional tags (ko adds dprk/rok automatically)
 langscan --lang ko input.txt
 
-# Extra languages
-langscan --lang vi --lang th --lang ar --lang fa --lang he --lang hi --lang el --lang ur input.txt
+# Add custom keyword hints
+langscan --keyword dprk=juche --keyword rok=hanguk input.txt
 
+# Load keyword hints from a file
+langscan --keyword-file keywords.txt input.txt
+
+# Recurse into a directory
+langscan -r ./samples
+
+# Show match statistics instead of matching lines
+langscan --stats -r ./samples
 ```
 
 ## Output
@@ -64,6 +74,34 @@ langscan --format json input.txt
 ]
 ```
 
+JSON Lines emits one record per matching line:
+
+```bash
+langscan --format json-lines input.txt
+```
+
+YAML is also supported:
+
+```bash
+langscan --format yaml input.txt
+```
+
+Stats mode prints per-language counts instead of line output:
+
+```bash
+langscan --stats input.txt
+langscan --stats -r ./samples
+```
+
+Keyword files use one `lang=word` entry per line. Empty lines and lines starting with `#` are ignored.
+
+```text
+# keywords.txt
+dprk=juche
+rok=hanguk
+ru=moskva
+```
+
 ## CLI
 
 ```
@@ -73,8 +111,10 @@ Options:
   -l, --lang <LANG>     Target selectors (repeatable or comma-separated)
   -v, --invert-match    Show only lines with no detected labels
       --keyword <K=V>   Add keyword mapping like lang=word (repeatable)
-      --format <FMT>    Output format: text|json
+      --keyword-file    Load keyword mappings from a file, one lang=word per line
+      --format <FMT>    Output format: text|json|json-lines|yaml
   -r, --recursive       Recurse into directories
+      --stats           Show match statistics
 ```
 
 Accepted `--lang` values:
@@ -88,8 +128,11 @@ Accepted `--lang` values:
 - `ko`: Korean, general
 - `ko-kr`, `rok`: Korean, South Korea
 - `ko-kp`, `dprk`: Korean, North Korea
-- `ru`: Russian / Cyrillic, Russia-oriented
+- `pl`, `pol`, `polish`: Polish, Poland
+- `ru`: Russian, Cyrillic-based text
 - `th`: Thai, Thailand
+- `tr`, `tur`, `turkish`: Turkish, Turkey
+- `uk`, `ukr`, `ukrainian`: Ukrainian, Ukraine
 - `ur`, `urd`, `urdu`: Urdu, Pakistan
 - `vi`: Vietnamese, Vietnam
 - `zh-cn`, `zh-hans`, `cn`: Simplified Chinese, China
@@ -97,6 +140,8 @@ Accepted `--lang` values:
 
 Built-in `cn` / `tw` markers are derived from Unicode Unihan simplified/traditional variant data.
 Japanese Joyo Kanji are excluded from those built-in marker tables to keep the labels conservative.
+Some Latin-derived language labels such as `pl`, `tr`, and `vi` rely on conservative marker characters rather than complete language identification.
+Similarly, `fa` and `ur` rely on a small set of distinguishing letters and are intended as heuristic hints, not definitive language identification.
 
 ## Output Labels
 
@@ -104,8 +149,10 @@ Japanese Joyo Kanji are excluded from those built-in marker tables to keep the l
 - Broad script-family labels can appear together with narrower country- or language-oriented labels.
 - Example: `cjk` can appear together with `cn`, `tw`, or `ja`.
 - Example: `ar` can appear together with `fa`.
+- Example: `ar` can appear together with `ur`.
 - Example: `ko` can appear together with `dprk` or `rok`.
 - This is intentional. The broad label indicates the script family, while the narrower label indicates a more specific language or regional signal.
+- Narrower labels are conservative heuristics and may still overlap when scripts share letters or presentation forms.
 
 ## Test data
 A small sample file is included at `testdata/sample.txt`.
@@ -116,12 +163,12 @@ Pre-compiled standalone binaries are available.
 Each release ships direct executable files for Linux and Windows, not zip-only bundles.
 
 ```bash
-chmod +x ./langscan-linux-x86_64
-./langscan-linux-x86_64 {{options...}}
+$ chmod +x ./langscan
+$ ./langscan {{options...}}
 ```
 
 ```powershell
-.\langscan-windows-x86_64.exe {{options...}}
+> .\langscan.exe {{options...}}
 ```
 
 ## Contributing

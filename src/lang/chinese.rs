@@ -1,5 +1,5 @@
-use super::data::chinese_simplified::SIMPLIFIED_MARKERS;
-use super::data::chinese_traditional::TRADITIONAL_MARKERS;
+use super::markers::chinese_simplified::SIMPLIFIED_MARKERS;
+use super::markers::chinese_traditional::TRADITIONAL_MARKERS;
 use super::Lang;
 use std::collections::BTreeMap;
 

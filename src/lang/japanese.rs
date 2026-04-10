@@ -1,3 +1,7 @@
+use super::markers::japanese::JAPANESE_RANGES;
+
 pub fn is_japanese(ch: char) -> bool {
-    matches!(ch as u32, 0x3040..=0x309F | 0x30A0..=0x30FF | 0xFF66..=0xFF9D)
+    JAPANESE_RANGES
+        .iter()
+        .any(|(start, end)| (*start..=*end).contains(&ch))
 }

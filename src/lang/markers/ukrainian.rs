@@ -1,0 +1,1 @@
+pub const UKRAINIAN_MARKERS: &[char] = &['Ґ', 'ґ', 'Є', 'є', 'Ї', 'ї'];

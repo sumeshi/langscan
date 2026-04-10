@@ -1,27 +1,41 @@
-use clap::{Parser, ValueEnum};
-use serde::Serialize;
-use std::collections::BTreeMap;
+use clap::Parser;
+use rayon::prelude::*;
+use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
 mod lang;
+mod output;
 mod scanner;
+
+pub use output::OutputFormat;
+use output::{
+    collect_serialized_file_results, flush_serialized_file_results, print_counts,
+    print_counts_for_file, print_serialized_results, print_total_counts, JsonFileResult,
+    YamlFileResult,
+};
+pub use scanner::{scan_collect, LineHit, MatchMode};
 
 #[derive(Parser, Debug)]
 #[command(name = "langscan")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Scan lines for uncommon scripts (CJK, Cyrillic) and language hints")]
 struct Args {
     /// Input file or directory (defaults to stdin)
     input: Vec<PathBuf>,
 
-    /// Target selectors (repeatable). Examples: cjk (China/Japan/Korea), zh-cn|zh-hans|cn (China), zh-tw|zh-hant|tw (Taiwan), ru (Russia), ko (Korean), ko-kp|dprk (North Korea), ko-kr|rok (South Korea), ja (Japan), vi (Vietnam), th (Thailand), ar (Arabic-speaking regions), fa (Iran), he (Israel), hi (India), el (Greece), ur (Pakistan)
+    /// Target selectors (repeatable). Examples: cjk (China/Japan/Korea), zh-cn|zh-hans|cn (China), zh-tw|zh-hant|tw (Taiwan), ru (Russia), ko (Korean), ko-kp|dprk (North Korea), ko-kr|rok (South Korea), ja (Japan), vi (Vietnam), th (Thailand), tr (Turkey), ar (Arabic-speaking regions), fa (Iran), he (Israel), hi (India), el (Greece), ur (Pakistan)
     #[arg(short, long, value_delimiter = ',')]
     lang: Vec<lang::Lang>,
 
     /// Add keyword mapping like lang=word (repeatable)
     #[arg(long)]
     keyword: Vec<String>,
+
+    /// Load keyword mappings from files with one lang=word entry per line
+    #[arg(long = "keyword-file")]
+    keyword_files: Vec<PathBuf>,
 
     /// Output format
     #[arg(long, value_enum, default_value = "text")]
@@ -34,20 +48,10 @@ struct Args {
     /// Recurse into directories
     #[arg(short = 'r', long)]
     recursive: bool,
-}
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum OutputFormat {
-    Text,
-    Json,
-}
-
-#[derive(Serialize)]
-struct JsonFileResult {
-    file: Option<String>,
-    hits: BTreeMap<String, Vec<usize>>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    misses: Vec<usize>,
+    /// Show match statistics
+    #[arg(long)]
+    stats: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -55,18 +59,21 @@ fn main() -> io::Result<()> {
 
     let mut langs = if args.lang.is_empty() {
         vec![
-            lang::Lang::Cjk,
-            lang::Lang::Ru,
-            lang::Lang::Ko,
-            lang::Lang::Ja,
-            lang::Lang::Vi,
-            lang::Lang::Th,
             lang::Lang::Ar,
+            lang::Lang::Cjk,
+            lang::Lang::El,
             lang::Lang::Fa,
             lang::Lang::He,
             lang::Lang::Hi,
-            lang::Lang::El,
+            lang::Lang::Ja,
+            lang::Lang::Ko,
+            lang::Lang::Pl,
+            lang::Lang::Ru,
+            lang::Lang::Th,
+            lang::Lang::Tr,
+            lang::Lang::Uk,
             lang::Lang::Ur,
+            lang::Lang::Vi,
         ]
     } else {
         args.lang.clone()
@@ -93,64 +100,96 @@ fn main() -> io::Result<()> {
     langs.sort();
     langs.dedup();
 
-    let keyword_map = lang::load_keywords(&args.keyword)?;
+    let keyword_entries = load_keyword_entries(&args.keyword, &args.keyword_files)?;
+    let keyword_map = lang::load_keywords(&keyword_entries)?;
 
     if args.input.is_empty() {
         let reader: Box<dyn BufRead> = Box::new(BufReader::new(io::stdin()));
         let mode = if args.invert_match {
-            scanner::MatchMode::Unmatched
+            MatchMode::Unmatched
         } else {
-            scanner::MatchMode::Matched
+            MatchMode::Matched
         };
-        let lines = scanner::scan_collect(reader, &langs, &keyword_map, mode)?;
-        if matches!(args.format, OutputFormat::Json) {
-            let json = serde_json::to_string_pretty(&vec![JsonFileResult {
-                file: None,
-                hits: summarize_hits(&lines),
-                misses: summarize_misses(&lines),
-            }])
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            println!("{json}");
+        let lines = scan_collect(reader, &langs, &keyword_map, mode)?;
+        if args.stats {
+            print_counts(&lines);
         } else {
-            output_results(args.format, None, &lines, false, args.invert_match)?;
+            match args.format {
+                OutputFormat::Text => {
+                    output::output_results(args.format, None, &lines, false, args.invert_match)?;
+                }
+                OutputFormat::Json | OutputFormat::JsonLines | OutputFormat::Yaml => {
+                    print_serialized_results(args.format, None, &lines)?;
+                }
+            }
         }
         return Ok(());
     }
 
     let files = collect_files(&args.input, args.recursive)?;
     let show_file = files.len() > 1;
-    let mut json_out: Vec<JsonFileResult> = Vec::new();
+    let need_total_stats = args.stats && files.len() > 1;
+    let mode = if args.invert_match {
+        MatchMode::Unmatched
+    } else {
+        MatchMode::Matched
+    };
 
-    for path in files {
-        let reader: Box<dyn BufRead> = Box::new(BufReader::new(std::fs::File::open(&path)?));
-        let mode = if args.invert_match {
-            scanner::MatchMode::Unmatched
-        } else {
-            scanner::MatchMode::Matched
-        };
-        let lines = scanner::scan_collect(reader, &langs, &keyword_map, mode)?;
+    let results_per_file: Vec<io::Result<(PathBuf, Vec<LineHit>)>> = files
+        .par_iter()
+        .map(|path| {
+            let reader: Box<dyn BufRead> = Box::new(BufReader::new(std::fs::File::open(path)?));
+            let hits = scan_collect(reader, &langs, &keyword_map, mode)?;
+            Ok((path.clone(), hits))
+        })
+        .collect();
+    let results_by_file: Vec<(PathBuf, Vec<LineHit>)> = results_per_file
+        .into_iter()
+        .collect::<io::Result<Vec<_>>>()?;
+
+    let mut json_out: Vec<JsonFileResult> = Vec::new();
+    let mut yaml_out: Vec<YamlFileResult> = Vec::new();
+    let mut all_lines: Vec<LineHit> = Vec::new();
+
+    for (path, lines) in &results_by_file {
         let file_label = path.to_string_lossy().to_string();
-        if matches!(args.format, OutputFormat::Json) {
-            json_out.push(JsonFileResult {
-                file: Some(file_label),
-                hits: summarize_hits(&lines),
-                misses: summarize_misses(&lines),
-            });
+        if args.stats {
+            print_counts_for_file(&file_label, lines);
         } else {
-            output_results(
-                args.format,
-                Some(&file_label),
-                &lines,
-                show_file,
-                args.invert_match,
-            )?;
+            match args.format {
+                OutputFormat::Text => {
+                    output::output_results(
+                        args.format,
+                        Some(&file_label),
+                        lines,
+                        show_file,
+                        args.invert_match,
+                    )?;
+                }
+                OutputFormat::Json | OutputFormat::Yaml => {
+                    collect_serialized_file_results(
+                        args.format,
+                        &file_label,
+                        lines,
+                        &mut json_out,
+                        &mut yaml_out,
+                    );
+                }
+                OutputFormat::JsonLines => {
+                    print_serialized_results(args.format, Some(&file_label), lines)?;
+                }
+            }
+        }
+        if need_total_stats {
+            all_lines.extend(lines.iter().cloned());
         }
     }
 
-    if matches!(args.format, OutputFormat::Json) {
-        let json = serde_json::to_string_pretty(&json_out)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        println!("{json}");
+    if !args.stats {
+        flush_serialized_file_results(args.format, &json_out, &yaml_out)?;
+    }
+    if need_total_stats {
+        print_total_counts(&all_lines);
     }
 
     Ok(())
@@ -180,63 +219,20 @@ fn collect_files(paths: &[PathBuf], recursive: bool) -> io::Result<Vec<PathBuf>>
     Ok(files)
 }
 
-fn output_results(
-    format: OutputFormat,
-    file: Option<&str>,
-    lines: &[scanner::LineHit],
-    show_file: bool,
-    invert_match: bool,
-) -> io::Result<()> {
-    match format {
-        OutputFormat::Text => {
-            for hit in lines {
-                if invert_match {
-                    if show_file {
-                        let label = file.unwrap_or("-");
-                        println!("[{}:L{}] {}", label, hit.line_no, hit.highlighted);
-                    } else {
-                        println!("[L{}] {}", hit.line_no, hit.highlighted);
-                    }
-                } else {
-                    let lang_list = hit
-                        .labels
-                        .iter()
-                        .copied()
-                        .map(lang::lang_label)
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    if show_file {
-                        let label = file.unwrap_or("-");
-                        println!(
-                            "[{}:L{}:{}] {}",
-                            label, hit.line_no, lang_list, hit.highlighted
-                        );
-                    } else {
-                        println!("[L{}:{}] {}", hit.line_no, lang_list, hit.highlighted);
-                    }
-                }
+fn load_keyword_entries(cli_keywords: &[String], keyword_files: &[PathBuf]) -> io::Result<Vec<String>> {
+    let mut entries = cli_keywords.to_vec();
+
+    for path in keyword_files {
+        let reader = BufReader::new(File::open(path)?);
+        for line in reader.lines() {
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
             }
-        }
-        OutputFormat::Json => {}
-    }
-    Ok(())
-}
-
-fn summarize_hits(lines: &[scanner::LineHit]) -> BTreeMap<String, Vec<usize>> {
-    let mut out: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for hit in lines {
-        for lang in &hit.labels {
-            let label = lang::lang_label(*lang).to_string();
-            out.entry(label).or_default().push(hit.line_no);
+            entries.push(trimmed.to_string());
         }
     }
-    out
-}
 
-fn summarize_misses(lines: &[scanner::LineHit]) -> Vec<usize> {
-    lines
-        .iter()
-        .filter(|hit| hit.labels.is_empty())
-        .map(|hit| hit.line_no)
-        .collect()
+    Ok(entries)
 }

@@ -2,7 +2,7 @@
 [ja] これはテストです
 [cjk,cn] 这是一个测试
 [cjk,tw] 這是一個測試
-[ko] 테스트입니다
+[cjk,ko] 테스트입니다
 [ru] пример строки
 [vi] tiếng Việt có dấu
 [th] ภาษาไทยทดสอบ
@@ -17,8 +17,8 @@
 [cjk,tw] 數據分析
 
 # --- dprk keywords ---
-[dprk,ko] 조선 로동 동무
-[dprk,ko] 위대한 수령 동지
+[cjk,dprk,ko] 조선 로동 동무
+[cjk,dprk,ko] 위대한 수령 동지
 
 # --- mixed scripts ---
 [ja] abc テスト
@@ -26,7 +26,7 @@
 [cjk,cn] abc 测试
 [ja,ru] テスト пример
 [cjk,cn,ko] 测试 테스트
-[el,ko] Δοκιμή 테스트
+[cjk,el,ko] Δοκιμή 테스트
 [el,ja,ru] пример テスト Δοκιμή
 
 # --- latin only suspicious ---
@@ -36,8 +36,8 @@
 
 # --- weird multilingual spam-like ---
 [ar,cjk,cn,ko] 免费 테스트 click هنا الآن
-[ja,ko,ru] обновление テスト 지금 바로 확인
-[ar,ja,ko] secure حساب 확인 テスト
+[cjk,ja,ko,ru] обновление テスト 지금 바로 확인
+[ar,cjk,ja,ko] secure حساب 확인 テスト
 
 # --- encoding / noise ---
 [unknown] \x00\x01\x02test\xFF
@@ -45,7 +45,7 @@
 [unknown] /////@@@@@#####
 
 # --- long mixed line ---
-[ar,el,ja,ko,ru] これはtest строки Δοκιμή 테스트 العربية mixed テキスト пример
+[ar,cjk,el,ja,ko,ru] これはtest строки Δοκιμή 테스트 العربية mixed テキスト пример
 
 # --- edge cases ---
 [en] a

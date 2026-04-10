@@ -1,3 +1,9 @@
+use super::markers::hindi::{DEVANAGARI_EXTENDED_RANGE, DEVANAGARI_RANGE};
+
 pub fn is_devanagari(ch: char) -> bool {
-    matches!(ch as u32, 0x0900..=0x097F)
+    let (start, end) = DEVANAGARI_RANGE;
+    (start..=end).contains(&ch) || {
+        let (start, end) = DEVANAGARI_EXTENDED_RANGE;
+        (start..=end).contains(&ch)
+    }
 }
