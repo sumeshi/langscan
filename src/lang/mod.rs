@@ -32,22 +32,22 @@ pub use vietnamese::is_vietnamese;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Lang {
-    Cjk,
-    ZhHans,
-    ZhHant,
-    Ru,
-    Ko,
-    KoKp,
-    KoKr,
-    Ja,
-    Vi,
-    Th,
     Ar,
+    Cjk,
+    El,
     Fa,
     He,
     Hi,
-    El,
+    Ja,
+    Ko,
+    KoKp,
+    KoKr,
+    Ru,
+    Th,
     Ur,
+    Vi,
+    ZhHans,
+    ZhHant,
 }
 
 impl std::str::FromStr for Lang {
@@ -55,24 +55,22 @@ impl std::str::FromStr for Lang {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "cjk" => Ok(Lang::Cjk),
-            "zh-cn" | "zh-hans" | "zh-hans-cn" | "zh_simplified" => Ok(Lang::ZhHans),
-            "zh-tw" | "zh-hant" | "zh-hant-tw" | "zh_traditional" => Ok(Lang::ZhHant),
-            "ru" | "rus" | "russian" => Ok(Lang::Ru),
-            "ko" | "kor" | "korean" => Ok(Lang::Ko),
-            "ko-kp" | "kp" | "dprk" | "north-korea" => Ok(Lang::KoKp),
-            "ko-kr" | "kr" | "rok" | "south-korea" => Ok(Lang::KoKr),
-            "ja" | "jpn" | "japanese" => Ok(Lang::Ja),
-            "vi" | "vie" | "vietnamese" => Ok(Lang::Vi),
-            "th" | "tha" | "thai" => Ok(Lang::Th),
             "ar" | "ara" | "arabic" => Ok(Lang::Ar),
+            "cjk" => Ok(Lang::Cjk),
+            "el" | "ell" | "greek" | "gr" => Ok(Lang::El),
             "fa" | "fas" | "per" | "persian" | "farsi" => Ok(Lang::Fa),
             "he" | "heb" | "hebrew" => Ok(Lang::He),
             "hi" | "hin" | "hindi" => Ok(Lang::Hi),
-            "el" | "ell" | "greek" | "gr" => Ok(Lang::El),
+            "ja" | "jpn" | "japanese" => Ok(Lang::Ja),
+            "ko" | "kor" | "korean" => Ok(Lang::Ko),
+            "ko-kp" | "kp" | "dprk" | "north-korea" => Ok(Lang::KoKp),
+            "ko-kr" | "kr" | "rok" | "south-korea" => Ok(Lang::KoKr),
+            "ru" | "rus" | "russian" => Ok(Lang::Ru),
+            "th" | "tha" | "thai" => Ok(Lang::Th),
             "ur" | "urd" | "urdu" => Ok(Lang::Ur),
-            "cn" => Ok(Lang::ZhHans),
-            "tw" => Ok(Lang::ZhHant),
+            "vi" | "vie" | "vietnamese" => Ok(Lang::Vi),
+            "zh-cn" | "zh-hans" | "zh-hans-cn" | "zh_simplified" | "cn" => Ok(Lang::ZhHans),
+            "zh-tw" | "zh-hant" | "zh-hant-tw" | "zh_traditional" | "tw" => Ok(Lang::ZhHant),
             other => Err(format!("unknown lang: {other}")),
         }
     }
@@ -80,27 +78,36 @@ impl std::str::FromStr for Lang {
 
 pub fn lang_label(lang: Lang) -> &'static str {
     match lang {
-        Lang::Cjk => "cjk",
-        Lang::ZhHans => "cn",
-        Lang::ZhHant => "tw",
-        Lang::Ru => "ru",
-        Lang::Ko => "ko",
-        Lang::KoKp => "dprk",
-        Lang::KoKr => "rok",
-        Lang::Ja => "ja",
-        Lang::Vi => "vi",
-        Lang::Th => "th",
         Lang::Ar => "ar",
+        Lang::Cjk => "cjk",
+        Lang::El => "el",
         Lang::Fa => "fa",
         Lang::He => "he",
         Lang::Hi => "hi",
-        Lang::El => "el",
+        Lang::Ja => "ja",
+        Lang::Ko => "ko",
+        Lang::KoKp => "dprk",
+        Lang::KoKr => "rok",
+        Lang::Ru => "ru",
+        Lang::Th => "th",
         Lang::Ur => "ur",
+        Lang::Vi => "vi",
+        Lang::ZhHans => "cn",
+        Lang::ZhHant => "tw",
     }
 }
 
 pub fn load_keywords(entries: &[String]) -> io::Result<BTreeMap<Lang, Vec<String>>> {
-    let mut map = korean::built_in_keywords();
+    let mut map: BTreeMap<Lang, Vec<String>> = BTreeMap::new();
+
+    // 1. Aggregate built-in keywords for each language
+    for builtin in [korean::built_in_keywords(), chinese::built_in_keywords()] {
+        for (lang, keywords) in builtin.into_iter() {
+            map.entry(lang).or_default().extend(keywords);
+        }
+    }
+
+    // 2. Load external keywords from entries
     for entry in entries {
         let (lang_str, word) = entry.split_once('=').ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "keyword expects lang=word")

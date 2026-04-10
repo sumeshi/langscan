@@ -234,7 +234,8 @@ fn summarize_hits(lines: &[scanner::LineHit]) -> BTreeMap<String, Vec<usize>> {
 }
 
 fn summarize_misses(lines: &[scanner::LineHit]) -> Vec<usize> {
-    lines.iter()
+    lines
+        .iter()
         .filter(|hit| hit.labels.is_empty())
         .map(|hit| hit.line_no)
         .collect()

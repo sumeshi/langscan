@@ -146,7 +146,8 @@ pub fn scan_collect(
 
         let matched = !hits.is_empty();
         if matches!(mode, MatchMode::Matched) && matched {
-            let hit_vec = hits.into_iter().collect::<Vec<_>>();
+            let mut hit_vec = hits.into_iter().collect::<Vec<_>>();
+            hit_vec.sort_by_key(|lang| lang::lang_label(*lang));
             let highlighted = highlight_line(line, &hit_vec, keyword_map);
             hits_out.push(LineHit {
                 line_no,
@@ -442,7 +443,7 @@ mod tests {
 
     #[test]
     fn detect_expanded_traditional_chinese_marker() {
-        let hits = scan("網路安全\n", &[Lang::Cjk, Lang::ZhHant]);
+        let hits = scan("權限安全\n", &[Lang::Cjk, Lang::ZhHant]);
         assert!(hits[0].labels.contains(&Lang::ZhHant));
     }
 
@@ -631,6 +632,21 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert!(hits[0].highlighted.contains("\x1b[31m"));
         assert!(hits[0].highlighted.contains("\x1b[0m"));
+    }
+
+    #[test]
+    fn labels_are_sorted_alphabetically() {
+        let hits = scan(
+            "安全测试 테스트 العربية\n",
+            &[Lang::Ko, Lang::Ar, Lang::Cjk, Lang::ZhHans],
+        );
+        let labels = hits[0]
+            .labels
+            .iter()
+            .copied()
+            .map(lang::lang_label)
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["ar", "cjk", "cn", "ko"]);
     }
 
     #[test]

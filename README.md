@@ -95,6 +95,9 @@ Accepted `--lang` values:
 - `zh-cn`, `zh-hans`, `cn`: Simplified Chinese, China
 - `zh-tw`, `zh-hant`, `tw`: Traditional Chinese, Taiwan
 
+Built-in `cn` / `tw` markers are derived from Unicode Unihan simplified/traditional variant data.
+Japanese Joyo Kanji are excluded from those built-in marker tables to keep the labels conservative.
+
 ## Output Labels
 
 - Labels are not always mutually exclusive.
