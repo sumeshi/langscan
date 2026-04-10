@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_run:
+    workflows:
+      - Tag on Push
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -15,13 +20,81 @@ env:
   WINDOWS_ASSET_NAME: langscan-windows-x86_64.exe
 
 jobs:
+  prepare:
+    name: Resolve release ref
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.resolve.outputs.should_release }}
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+
+    steps:
+      - name: Checkout tag push ref
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Checkout workflow_run source commit
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout manual dispatch ref
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
+      - name: Resolve tag and checkout ref
+        id: resolve
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            if [[ "${{ github.event.workflow_run.conclusion }}" != "success" ]]; then
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/' | tr -d ' ')
+            TAG_NAME="v${VERSION}"
+            TAG_SHA=$(git ls-remote --tags origin "refs/tags/${TAG_NAME}" | awk '{print $1}')
+
+            if [[ -n "${TAG_SHA}" && "${TAG_SHA}" == "${{ github.event.workflow_run.head_sha }}" ]]; then
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+              echo "checkout_ref=refs/tags/${TAG_NAME}" >> "$GITHUB_OUTPUT"
+              echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-linux:
     name: Build linux x86_64
     runs-on: ubuntu-22.04
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -48,10 +121,14 @@ jobs:
   build-windows:
     name: Build windows x86_64
     runs-on: windows-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -79,9 +156,10 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs:
+      - prepare
       - build-linux
       - build-windows
-    if: startsWith(github.ref, 'refs/tags/')
+    if: needs.prepare.outputs.should_release == 'true'
 
     steps:
       - name: Download build artifacts
@@ -92,6 +170,7 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
           files: |
             dist/langscan-linux-x86_64/${{ env.LINUX_ASSET_NAME }}
             dist/langscan-windows-x86_64/${{ env.WINDOWS_ASSET_NAME }}
